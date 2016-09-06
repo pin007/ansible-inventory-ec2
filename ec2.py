@@ -254,6 +254,14 @@ class Ec2Inventory(object):
         else:
             self.hostname_variable = None
 
+        if config.has_option('ec2', 'hostname_format') and \
+           config.has_option('ec2', 'hostname_format_vars'):
+            self.hostname_format = config.get('ec2', 'hostname_format')
+            self.hostname_format_vars = config.get('ec2', 'hostname_format_vars').split(',')
+        else:
+            self.hostname_format = None
+            self.hostname_format_vars = None
+
         if config.has_option('ec2', 'destination_format') and \
            config.has_option('ec2', 'destination_format_tags'):
             self.destination_format = config.get('ec2', 'destination_format')
@@ -779,7 +787,27 @@ class Ec2Inventory(object):
 
         # Set the inventory name
         hostname = None
-        if self.hostname_variable:
+        if self.hostname_format and self.hostname_format_vars:
+            values = []
+            for var in self.hostname_format_vars:
+                value = None
+                if var.startswith('tag_'):
+                    value = instance.tags.get(var[4:], None)
+                else:
+                    value = getattr(instance, var)
+                    if var == 'state':
+                        value = value.state
+                    elif isinstance(value, six.string_types):
+                        value = value.strip()
+                    elif type(value) == type(None):
+                        value = ''
+                    elif var == 'region':
+                        value = value.name
+                    elif var == 'placement':
+                        value = value.zone
+                values.append(value)
+            hostname = self.hostname_format.format(*values)
+        elif self.hostname_variable:
             if self.hostname_variable.startswith('tag_'):
                 hostname = instance.tags.get(self.hostname_variable[4:], None)
             else:
@@ -1486,7 +1514,7 @@ class Ec2Inventory(object):
 
     def to_safe(self, word):
         ''' Converts 'bad' characters in a string to underscores so they can be used as Ansible groups '''
-        regex = "[^A-Za-z0-9\_"
+        regex = "[^A-Za-z0-9\."
         if not self.replace_dash_in_groups:
             regex += "\-"
         return re.sub(regex + "]", "_", word)
